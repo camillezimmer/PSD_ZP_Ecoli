@@ -5,6 +5,9 @@ date: "2023-01-16"
 output: html_document
 ---
 
+## Analysis for the zeta potential of E. coli EcN and K-12
+# Written by CZ and LPN
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 # Fresh clean up ----
@@ -31,8 +34,8 @@ raw_zeta <- read_excel("data/zeta_runs.xlsx", col_names = T)
 
 # Data wrangling ----
 
-#making sure only zeta measurements are selected
-#this mean the column Type must be selected as a record in Malvern's software
+#select zeta potential measurements
+#this means the column Type must be selected as a record in Malvern's software
 raw_zeta <- filter(raw_zeta, Type == 'Zeta')
 
 #sub spaces and - for _ in column names and make all letters lowercase for column names
@@ -81,14 +84,14 @@ raw_zeta$meas_num <- as.factor(raw_zeta$meas_num)
 # Data quality check ----
 
 #data does not meet quality criteria if quality factor is under 1
-## CZ: No data were deleted on the basis of the QF
+## Result: No data were deleted on the basis of the QF
 QF_reject = filter(raw_zeta, quality_factor < 1)
 
 #data does not meet quality criteria if spectral quality factor is under 1
 #however, on automatic mode, the zetasizer will stop the measurement when 1 is
 #obtained. Therefore it is only a treshold value. It happens that it is not 
 #exactly 1 (e.g. 0,999), this is why signif is used.
-## CZ: No data were deleted on the basis of the SQF
+## Result: No data were deleted on the basis of the SQF
 SQF_reject = filter(raw_zeta, signif(spectral_quality_factor,1) < 1)
 
 #data that can't be used (distinct to remove duplicates)
@@ -112,8 +115,7 @@ remove_outliers <- function(x, na.rm = TRUE, ...) {
 }
 
 #making a dataframe of the zp outliers per run
-## CZ: 14 data points were removed on the basis of outliers
-## CZ: ???? THere are ~30 runs remaining for each condition, I thought we did 30 in the first place, how did we get 44?? 
+## Result: 14 data points would be removed on the basis of outliers
 zp_outliers <- zp_raw %>% 
   group_by(strain_run) %>%
   mutate(zp = remove_outliers(zp)) %>% 
@@ -133,11 +135,10 @@ zp_cleaned <- zp_raw %>%
 
 ```
 
-```{r Data calculations for further analysis}
+```{r preliminary data calculations for further analysis}
 
 #choose below if the wanted data for analysis contains outliers or not
 #for outliers: choice <-  'raw', no outliers: choice <- 'cleaned'
-
 choice <- 'raw'
 list_df = list('raw' = zp_raw, 'cleaned' = zp_cleaned)
 
@@ -178,7 +179,7 @@ summary_strain <- list_df[[choice]] %>%
          zp_95down = zp_mean - 1.96*zp_sd)
 ```
 
-```{r Plots}
+```{r preliminary plots}
 
 # Plots ----
 
@@ -325,14 +326,14 @@ bp_strain+dp_strain+plot_annotation(
 
 #sample size
 list_df[[choice]] %>% filter(!is.na(zp)) %>% group_by(strain_id) %>% count()
-#35 values for ka ma and mc (with outliers)
+#35 values for ka ma and mc (with outliers, 0 points removed for data quality, see "data quality" chunk)
 
 
 cleaned_data = list_df[[choice]]
 
 #Shapiro-Wilk normality test and Q-Q plots
 nor.test(zp ~ strain_id, data = cleaned_data)
-#ka and mc do not pass Shapiro normality test, ma does.
+#ka and mc do not pass Shapiro normality test (i.e., they are non-normal), ma does (i.e., it is normal).
 
 
 
@@ -366,7 +367,7 @@ summary_stats
 # So yeah, something is statistically different
 model1 = aov(zp ~ strain_id, data = cleaned_data)
 model1
-summary(model1)
+summary(model1) ## Not used in publication (see model2 below)
 TukeyHSD(model1)
 
 # Try non-parametric ANOVA
@@ -374,21 +375,16 @@ TukeyHSD(model1)
 kruskal.test(zp ~ strain_id, data = cleaned_data)
 dunn_test(zp ~ strain_id, data = cleaned_data)
 
-## OK decision: Let's use parametric methods for this one, since n= 35, the anova answer doesn't change and bootstrapping gives a very similar mean difference to parametric methods
-## Another decision: we're gonna keep outliers
+## OK decision: Let's use parametric methods for this one, since n= 35, and bootstrapping gives a very similar mean difference to parametric methods (see chunk "Bootstrap analysis")
 
 # Now, with blocking
-# OK so now we have a statistically significant difference between all 3 groups
-# Blocking is also statistically significant so we know that the run # (i.e., batch) had an effect
-# Therefore use these results in publication (i.e., p values and mean differences between test conditions)
+# Result: Blocking is also statistically significant so we know that the run # (i.e., batch) had an effect
+# Therefore use these blocked results in publication (i.e., p values and mean differences between test conditions), because blocking affects the degrees of freedom and therefore the CI
 model2 = aov(zp ~ strain_id+strain_run, data = cleaned_data)
 model2
 summary(model2)
 TukeyHSD(model2)
 ```
-
-
-
 ```{r plots for publication CZ, fig.width=4.5, fig.height=6}
 # , fig.width=7, fig.height=11
 # UVic Hex code colours:
@@ -406,7 +402,9 @@ names(strainID_labs) = c("mc", "ma", "ka")
 
 # Make summary_stats into a label thing
 summary_stats = summary_stats %>%
-  mutate(label = c("= -42.2 (95% CI -41.0 to 43.4; n = 35)", "= -39.0 (95% CI -38.7 to -39.3; n = 35)", "= -40.0 (95% CI -39.3 to -40.8; n = 35)"))
+  mutate(label = c("= -42.1 (95% CI -40.9 to -43.3; n = 35)", 
+                   "= -39.0 (95% CI -38.7 to -39.3; n = 35)", 
+                   "= -40.0 (95% CI -39.2 to -40.7; n = 35)"))
 
 #try the mu
 summary_stats_mu = summary_stats %>%
@@ -414,7 +412,7 @@ summary_stats_mu = summary_stats %>%
 
 
 #Boxplot and density plot of zp per strain
-bp_strain_ZP <- ggplot(cleaned_data)+
+ZP_strain <- ggplot(cleaned_data)+
   aes(x = strain_id, y = zp, fill = strain_id)+
   geom_boxplot(aes(fill = strain_id), alpha = 0.5, width = 0.4)+
   geom_jitter(size = 1.2, width = 0.3)+
@@ -435,78 +433,11 @@ bp_strain_ZP <- ggplot(cleaned_data)+
   geom_text(data = summary_stats, aes(x = 0.52, y = -42.5,label = label), size = 3.5,parse=FALSE, inherit.aes = FALSE)+
   geom_text(data = summary_stats_mu, aes(x = 0.52, y = -38.2,label = mu), size = 3.5,parse=TRUE, inherit.aes = FALSE)
 
-plot(bp_strain_ZP)
-ggsave("bp_strain_ZP.png")
+plot(ZP_strain)
+ggsave("output/ZP_strain.png")
 
 
 ```
-
-
-
-```{r Statistical analysis}
-
-# Statistical analysis ----
-
-#chosen alpha value: 5%
-
-#Assessing the normality distribution assumption
-
-#sample size
-list_df[[choice]] %>% filter(!is.na(zp)) %>% group_by(strain_id) %>% count()
-#30 values for ka, 32 for ma and 29 for mc (outliers removed)
-
-#Shapiro-Wilk normality test and Q-Q plots
-nor.test(zp ~ strain_id, data = list_df[[choice]])
-
-#ka and mc do not pass Shapiro normality test, ma does.
-
-
-#Assessing homogeneity of variance, using the Fligner test because distribution is not normal for all groups
-homog.test(zp ~ strain_id, data = list_df[[choice]], method = "Fligner")
-#variances are not homogeneous across groups (p-value of 0.00021)
-
-#I can't find a transformation to make all groups normal (tried box-cox also)
-
-#Kruskal-Wallis test + things to keep in mind
-#can't confirm the null, just reject?
-#if the distributions are not similar between groups, it is only a test of dominance?
-#if the distributions between groups are similar = test of medians, not means?
-#can be regarded as difference of means if distribution similar and symetrical? 
-#can we block??
-
-kruskal.test(zp ~ strain_id, data = list_df[[choice]])
-#p-value = very small -> reject the Null
-
-#Dunn's post-hoc test
-dunn_test(data = list_df[[choice]], zp ~ strain_id, p.adjust.method = "holm", detailed = T)
-#would indicate no difference between ma and mc, but differences for all other comparisons
-#values are difference in mean ranks... not mean ZP
-
-
-#dummy tests ---- 
-
-#ANOVA comparing the ZP of the three scenarios (strain_id)
-#blocking on run_id to reduce error due to variation between runs
-list_df[[choice]] %>% 
-  aov(zp ~ strain_id + run_id, data = .) %>% 
-  summary()
-
-model1 = aov( zp ~ strain_id + run_id, data = list_df[[choice]])
-summary(model1)
-plot(model1)
-#very small p-value; Null rejected -> The ZP mean differs for at least one strain
-
-#post-hoc Tukey test
-list_df[[choice]] %>% 
-  aov(zp ~ strain_id + run_id, data = .) %>% 
-  TukeyHSD()
-#The ZP of Mutaflor does not seem to be affected by the preparation (avg_zp_capsule similar to avg_zp_agar, p_value = 0.19)
-#The ZP of K12 is statistically different than both Mutaflor preparations
-#difference in means ma-ka = 3,19, 95CI = [1,82, 4,56]
-#difference in means mc-ka = 2,17, 95CI = [0,76, 3,58]
-#difference in means mc-ma = -1,02, 95CI = [-2,41, 0,37]
-```
-
 
 
 ```{r Bootstrap analysis}

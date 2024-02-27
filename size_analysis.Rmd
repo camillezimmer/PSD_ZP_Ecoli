@@ -34,7 +34,7 @@ raw_size <- read_excel("data/size_runs.xlsx", col_names = T)
 # Data wrangling ----
 
 #making sure only size measurements are selected
-raw_size <- filter(raw_size, type == 'Size')
+raw_size <- filter(raw_size, Type == 'Size')
 
 #sub spaces and - for _ in column names and make all letters lowercase for column names
 names(raw_size) <- gsub(" ", "_", names(raw_size))
@@ -127,7 +127,7 @@ remove_outliers <- function(x, na.rm = TRUE, ...) {
 }
 
 #making a dataframe of the z_ave outliers per run
-## Result: 10 data points were removed on the basis of outliers (outside the 95% CI)
+## Result: 10 data points were removed on the basis of outliers (1.5*IQR)
 ## We'll keep these in for now, but keep them in mind
 cumulants_outliers <- cumulants_raw %>% 
   group_by(strain_run) %>%
@@ -147,7 +147,7 @@ cumulants_cleaned <- cumulants_raw %>%
 
 ```
 
-```{r Data Calculations}
+```{r preliminary Data Calculations}
 # Data calculations for further analysis ----
 
 #choose below if the wanted data for analysis contains outliers or not
@@ -430,16 +430,18 @@ summary_stats
 # First, without blocking
 # So yeah, something is statistically different
 # Investigate the mean differences using Tukey's post hoc
-# Result: ma-ka are different, and mc-ma; mc-ka are statistically the same
+
 model1 = aov(z_ave ~ strain_id, data = cleaned_data)
 model1
-summary(model1)
+summary(model1) ## Not used in publication (see model2 below)
 TukeyHSD(model1)
 
 
 # Now, with blocking
 # OK so it's still a statistically significant difference
 # Blocking is also statistically significant so we know that the run number (i.e., batch) had an effect
+# Therefore use these blocked results in publication (i.e., p values and mean differences between test conditions), because blocking affects the degrees of freedom and therefore the CI
+# Result: all comparisons are statistically different
 model2 = aov(z_ave ~ strain_id+strain_run, data = cleaned_data)
 model2
 summary(model2)
@@ -448,8 +450,6 @@ TukeyHSD(model2)
 
 
 ```
-
-
 ```{r Plots for publication,  fig.width=4.5, fig.height=6}
 
 # UVic Hex code colours:
@@ -468,7 +468,7 @@ names(strainID_labs) = c("mc", "ma", "ka")
 # Make summary_stats into a label thing
 summary_stats = summary_stats %>%
     mutate(mu = c("mu", "mu ", "mu ")) %>%
-  mutate(label = c("= 1187.0 (95% CI 1169.8 - 1204.0; n = 33)", # K12
+  mutate(label = c("= 1186.9 (95% CI 1169.8 - 1204.0; n = 33)", # K12
                    "= 1380.9 (95% CI 1350.2 - 1411.6; n = 35)", # EcN stat phase
                    "= 1222.5 (95% CI 1196.9 - 1248.1; n = 34)")) %>% # EcN from capsule
   mutate(z_ave = c(1250, 1380, 1250))
