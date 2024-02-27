@@ -5,6 +5,9 @@ date: "2023-01-16"
 output: html_document
 ---
 
+## Analysis for particle size distribution of E. coli EcN and K-12
+# Written by CZ and LPN
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 # Fresh clean up ----
@@ -15,7 +18,6 @@ rm(list = ls())
 # Loading libraries ----
 library(ggpubr)
 library(readxl)
-library(esquisse)
 library(onewaytests)
 library(rstatix)
 library(forcats)
@@ -32,7 +34,7 @@ raw_size <- read_excel("data/size_runs.xlsx", col_names = T)
 # Data wrangling ----
 
 #making sure only size measurements are selected
-raw_size <- filter(raw_size, Type == 'Size')
+raw_size <- filter(raw_size, type == 'Size')
 
 #sub spaces and - for _ in column names and make all letters lowercase for column names
 names(raw_size) <- gsub(" ", "_", names(raw_size))
@@ -80,24 +82,24 @@ raw_size$meas_num <- as.factor(raw_size$meas_num)
 ```{r Data Quality check, include=FALSE}
 # Data quality check ----
 
-## CZ: 0 obs removed on the basis of PdI
+## Result: 0 obs removed on the basis of PdI
 PdI_reject = filter(raw_size, pdi > 0.7)
 
-## CZ: 0 obs removed on the basis of intercept
+## Result: 0 obs removed on the basis of intercept
 Intercept_reject <- filter(raw_size, intercept < 0.1 | intercept > 1)
 
-## CZ: 1 obs (mc1s 5) removed on the basis of in-range
+## Result: 1 obs (mc1s 5) removed on the basis of in-range
 InRange_reject <- filter(raw_size, in_range < 90)
 
 
-#data that fails Cumulants and Multimodal analysis (unusable)
-## CZ: 2 obs (	ka5s 2  and ka5s 5) removed on the basis of cumulants & multimodal fit error
+# Check for data that fails Cumulants and Multimodal analysis (unusable)
+## Result: 2 obs (	ka5s 2  and ka5s 5) removed on the basis of cumulants & multimodal fit error
 Zavg_reject <- filter(raw_size, pdi > 0.5 | cumulants_fit_error > 0.005)
 Multimodal_reject <- filter(raw_size, multimodal_fit_error > 0.005)
 size_reject <- semi_join(Zavg_reject, Multimodal_reject)
 
-#data that can't be used (distinct to remove duplicates)
-## CZ: overall 3 obs (mc1s 5,	ka5s 2 and ka5s 5) removed on the basis of all data quality paramaters
+# Consolidate data that can't be used (distinct to remove duplicates)
+## Result: overall 3 obs (mc1s 5,	ka5s 2 and ka5s 5) removed on the basis of all data quality paramaters
 data_reject <- distinct(rbind(Intercept_reject, InRange_reject, PdI_reject, size_reject))
 
 #Data that can be analyzed with Cumulants analysis (Z-Ave)
@@ -125,7 +127,8 @@ remove_outliers <- function(x, na.rm = TRUE, ...) {
 }
 
 #making a dataframe of the z_ave outliers per run
-## CZ: 10 data points were removed on the basis of outliers (?????????????)
+## Result: 10 data points were removed on the basis of outliers (outside the 95% CI)
+## We'll keep these in for now, but keep them in mind
 cumulants_outliers <- cumulants_raw %>% 
   group_by(strain_run) %>%
   mutate(z_ave = remove_outliers(z_ave)) %>% 
@@ -144,24 +147,26 @@ cumulants_cleaned <- cumulants_raw %>%
 
 ```
 
-```{r Data Calculations, include=FALSE}
+```{r Data Calculations}
 # Data calculations for further analysis ----
 
 #choose below if the wanted data for analysis contains outliers or not
 #for outliers: choice <-  'raw', no outliers: choice <- 'cleaned'
-
+# Select data set with outliers included
 choice <- 'raw'
 list_df = list('raw' = cumulants_raw, 'cleaned' = cumulants_cleaned)
 
-
+# Calculate means by strain
 means_z_strain <- list_df[[choice]] %>% 
   group_by(strain_id) %>% 
   summarise(mean_z = mean(z_ave))
+means_z_strain
 
+# Calculate means by strain and run
 means_z_strainrun <- list_df[[choice]] %>% 
   group_by(strain_run) %>% 
   summarise(mean_z = mean(z_ave))
-
+means_z_strainrun
 
 #summary of cumulants data by run (strain_run)
 summary_run <- list_df[[choice]] %>% 
@@ -174,6 +179,7 @@ summary_run <- list_df[[choice]] %>%
   mutate(CI95 = 1.96*z_ave_sd,
          z_ave_95up = z_ave_mean + 1.96*z_ave_sd,
          z_ave_95down = z_ave_mean - 1.96*z_ave_sd)
+summary_run
 
 
 # summary by strain_id
@@ -187,11 +193,12 @@ summary_strain <- list_df[[choice]] %>%
   mutate(CI95 = 1.96*z_ave_sd,
          z_ave_95up = z_ave_mean + 1.96*z_ave_sd,
          z_ave_95down = z_ave_mean - 1.96*z_ave_sd)
+summary_strain
 
 ```
 
 
-```{r Plots}
+```{r explatory plots}
 
 # Plots ----
 
@@ -317,27 +324,28 @@ bp_strain+dp_strain+plot_annotation(
 
 
 
-```{r Statistical analysis}
+```{r initial statistical analysis}
 
 # Statistical analysis ----
 
 #chosen alpha value: 5%
+# Using the raw dataset (3 points removed on data quality grounds, but with outliers included)
 
 #Assessing the normality distribution assumption
 
 #sample size
 list_df[[choice]] %>% filter(!is.na(z_ave)) %>% group_by(strain_id) %>% count()
-#29 values for ka, 31 for ma and 32 for mc (outliers removed)
+# 29 datapoints for ka, 31 for ma and 32 for mc 
 
 #Shapiro-Wilk normality test and Q-Q plots
 nor.test(z_ave ~ strain_id, data = list_df[[choice]])
 
-#ka and mc pass normality test, but ma fails (p-value = 0.024 on the shapiro test).
+## Result: ka and mc pass normality test, but ma fails (p-value = 0.024 on the shapiro test).
 
 #Assessing homogeneity of variance, using the Fligner test because distribution is not normal for all groups
 homog.test(z_ave ~ strain_id, data = list_df[[choice]], method = "Fligner")
 
-#variances are not homogeneous across groups (p-value of 0.022)
+## Result: variances are not homogeneous across groups (p-value of 0.022)
 
 #z_ave^2 transformation works to make all data fit normal distribution,
 df_trans <- list_df[[choice]] %>% 
@@ -350,7 +358,6 @@ homog.test(z_ave_trans ~ strain_id, data = df_trans, method = "Bartlett")
 
 #The total sample size is over 30 (29+31+32 = 92) and the group sizes are roughly equal: 32/29 = 1.1 < 1.5
 #I think we can still run ANOVA since it is quite robust to violations of homoscedasticity in this case?
-#I have also read that Bartlett test can be too sensitive... to confirm
 #good read: https://www.statisticssolutions.com/the-assumption-of-homogeneity-of-variance/
 #Maybe we should do a Welch's ANOVA instead??
 #https://www.statisticshowto.com/welchs-anova/
@@ -361,7 +368,6 @@ oneway.test(z_ave_trans ~ strain_id +run_id, data = df_trans , var.equal = FALSE
 #p-value very small -> reject the Null; The Z_ave^2 differs for at least one strain
 
 #post-hoc test for Welch's ANOVA : Games-Howell
-#can we block??? does not seem to work with this formula... what should we do?
 games_howell_test(df_trans, z_ave_trans ~ strain_id, detailed = T)
 #ka-mc do not differ significantly (p_value of 0.096), ka-ma and ma-mc do (very small p-values)
 #ka-ma mean diff = 488 374 -> sqrt() = 698nm
@@ -379,13 +385,13 @@ TukeyHSD(aov(z_ave_trans ~ strain_id +run_id, data = df_trans))
 
 
 
-```{r Statistical analysis WITH OUTLIERS CZ}
+```{r Statistical analysis in depth}
 
 #chosen alpha value: 5%
 
 #sample size
 list_df[[choice]] %>% filter(!is.na(z_ave)) %>% group_by(strain_id) %>% count()
-#29 values for ka, 31 for ma and 32 for mc (outliers removed)
+#29 values for ka, 31 for ma and 32 for mc (3 points removed for data quality, see "data quality" chunk)
 
 cleaned_data = list_df[[choice]]
 
@@ -393,12 +399,11 @@ cleaned_data = list_df[[choice]]
 nor.test(z_ave ~ strain_id, data = cleaned_data)
 
 #ka and mc pass normality test, but ma fails (p-value = 0.024 on the shapiro test).
-# Honestly, it looks pretty bell-curve-shaped, and since n>30, we'll keep the normality assumption
+# The data look pretty bell-curve-shaped, and since n>30, we'll keep the normality assumption
 
-#Assessing the normality distribution assumption by run
-#
-# Most blocks (runs) are normal, with three exceptions (ka2s, ka5s and mc6s), or one exception if outliers excluded (ka5s)
-#Based on the sample size (n ~= 30 if outliers excluded, > 30 if outliers included), the fact that most of the blocks are normally distributed, 
+##  Assessing the normality distribution assumption by run
+# Result: Most blocks (runs) are normal, with three exceptions (ka2s, ka5s and mc6s), or one exception if outliers excluded (ka5s)
+# Based on the sample size (n ~= 30 if outliers excluded, > 30 if outliers included), the fact that most of the blocks are normally distributed, 
 # AND the fact that we have mostly normally distributed overall data, we'll keep the normality assumption
 gr = levels(cleaned_data$strain_run)
 for (i in seq_along(gr)){
@@ -424,6 +429,8 @@ summary_stats
 # Do one-way ANOVA
 # First, without blocking
 # So yeah, something is statistically different
+# Investigate the mean differences using Tukey's post hoc
+# Result: ma-ka are different, and mc-ma; mc-ka are statistically the same
 model1 = aov(z_ave ~ strain_id, data = cleaned_data)
 model1
 summary(model1)
@@ -432,9 +439,7 @@ TukeyHSD(model1)
 
 # Now, with blocking
 # OK so it's still a statistically significant difference
-# Blocking is also statistically significant so we know that the run # (i.e., batch) 
-# had an effect
-# If we use blocking, all three strain conditions are statistically different... hmmmmm
+# Blocking is also statistically significant so we know that the run number (i.e., batch) had an effect
 model2 = aov(z_ave ~ strain_id+strain_run, data = cleaned_data)
 model2
 summary(model2)
@@ -445,7 +450,7 @@ TukeyHSD(model2)
 ```
 
 
-```{r Plots CZ for publication,  fig.width=4.5, fig.height=6}
+```{r Plots for publication,  fig.width=4.5, fig.height=6}
 
 # UVic Hex code colours:
 # "#C63527" = red
@@ -463,7 +468,9 @@ names(strainID_labs) = c("mc", "ma", "ka")
 # Make summary_stats into a label thing
 summary_stats = summary_stats %>%
     mutate(mu = c("mu", "mu ", "mu ")) %>%
-  mutate(label = c("= 1188.8 (95% CI 1173.1 - 1204.5; n = 33)", "= 1376.6 (95% CI 1343.8 - 1409.4; n = 35)", "= 1219.9 (95% CI 1194.3 - 1245.4; n = 34)")) %>%
+  mutate(label = c("= 1187.0 (95% CI 1169.8 - 1204.0; n = 33)", # K12
+                   "= 1380.9 (95% CI 1350.2 - 1411.6; n = 35)", # EcN stat phase
+                   "= 1222.5 (95% CI 1196.9 - 1248.1; n = 34)")) %>% # EcN from capsule
   mutate(z_ave = c(1250, 1380, 1250))
 
 #try the mu
@@ -473,29 +480,29 @@ summary_stats_mu = summary_stats %>%
 
 
 #Boxplot and density plot of z_ave per strain
-bp_strain <- ggplot(cleaned_data)+
-  aes(x = strain_id, y = z_ave)+
-  geom_boxplot(aes(fill = strain_id), alpha = 0.5, width = 0.4)+
-  geom_jitter(size = 1.2, width = 0.3)+
-  theme_bw()+
-  labs(y = "Size (nm)", x = element_blank())+
-  # ggtitle('Mean size (nm)')+
-  theme(legend.position = "none", 
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank(),
-        panel.grid.major.y = element_blank(),
-        axis.title.y=element_blank())+
-    scale_fill_manual(values = c("#005493", "#C63527", "#F5AA1C"))+     #Comment/uncommet for colour
-  # scale_fill_brewer(palette="Greys")+                                   #Comment/uncommet for B+W
-  coord_flip()+
-  theme(legend.position = "none", text = element_text(size = 14))+
-  facet_wrap(~strain_id, nrow=3, scales = 'free_y', labeller = labeller(strain_id = strainID_labs))+
-  stat_summary(fun = mean, geom = 'point', size=5, shape = 18, colour = "BLACK")+
-  geom_text(data = summary_stats, label = summary_stats$label, vjust = 5.6, size = 3.5,parse=FALSE)+
-  geom_text(data = summary_stats_mu, label = summary_stats_mu$mu, vjust = 4.7, size = 3.5,parse=TRUE)
+PSD_strain <- ggplot(cleaned_data)+
+                aes(x = strain_id, y = z_ave)+
+                geom_boxplot(aes(fill = strain_id), alpha = 0.5, width = 0.4)+
+                geom_jitter(size = 1.2, width = 0.3)+
+                theme_bw()+
+                labs(y = "Size (nm)", x = element_blank())+
+                # ggtitle('Mean size (nm)')+
+                theme(legend.position = "none", 
+                      axis.text.y=element_blank(),
+                      axis.ticks.y=element_blank(),
+                      panel.grid.major.y = element_blank(),
+                      axis.title.y=element_blank())+
+                  scale_fill_manual(values = c("#005493", "#C63527", "#F5AA1C"))+     #Comment/uncommet for colour
+                # scale_fill_brewer(palette="Greys")+                                   #Comment/uncommet for B+W
+                coord_flip()+
+                theme(legend.position = "none", text = element_text(size = 14))+
+                facet_wrap(~strain_id, nrow=3, scales = 'free_y', labeller = labeller(strain_id = strainID_labs))+
+                stat_summary(fun = mean, geom = 'point', size=5, shape = 18, colour = "BLACK")+
+                geom_text(data = summary_stats, label = summary_stats$label, vjust = 5.6, size = 3.5,parse=FALSE)+
+                geom_text(data = summary_stats_mu, label = summary_stats_mu$mu, vjust = 4.7, size = 3.5,parse=TRUE)
 
-plot(bp_strain)
-ggsave("bp_strain.png")
+plot(PSD_strain)
+ggsave("output/PSD_strain.png")
 
 
 
@@ -504,7 +511,7 @@ ggsave("bp_strain.png")
 
 
 
-```{r Statistical analysis CZARCHIVE - no outliers}
+```{r Statistical analysis ARCHIVE - no outliers}
 
 #chosen alpha value: 5%
 
